@@ -7,8 +7,8 @@ export type UserType = {
 
 export class User {
     public id?: number;
-    public username?: string;
-    private password?: string;
+    public username: string;
+    public password: string;
 
     public constructor(data: UserType) {
         this.id = data.id

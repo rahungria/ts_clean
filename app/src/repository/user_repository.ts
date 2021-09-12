@@ -21,7 +21,10 @@ export class UserRepository {
             `INSERT INTO ${this.USER_TABLE}(username, password) values ($1, $2) RETURNING *;`,
             [data.username, data.password]
         );
-        return rows.map(row => new User(row));
+        if (rows.length > 0)
+            return new User(rows[0]);
+        else 
+            return null;
     }
 
     public async retrieve_user_by_id(id: number) {
@@ -29,7 +32,10 @@ export class UserRepository {
             `SELECT * FROM ${this.USER_TABLE} WHERE id=$1`,
             [id]
         ));
-        return rows.map(row => new User(row));
+        if (rows.length > 0)
+            return new User(rows[0]);
+        else
+            return null;
     }
 
     public async retrieve_user_by_username(username: string) {
@@ -37,7 +43,10 @@ export class UserRepository {
             `SELECT * FROM ${this.USER_TABLE} WHERE username=$1`,
             [username]
         ));
-        return rows.map(row => new User(row));
+        if (rows.length > 0)
+            return new User(rows[0]);
+        else 
+            return null;
     }
 
     public async count() {
