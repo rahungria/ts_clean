@@ -1,16 +1,19 @@
-import { User, UserType } from "../entity/user";
+import { UserType } from "../entity/user";
 import { IDB_Manager } from "../ports/db_manager_port";
 import { IHashable } from "../ports/hash_port";
+import { ISessionManager } from "../ports/session_manager_port";
 import { UserRepository } from "../repository/user_repository";
 
 
 export class UserController {
     private hash: IHashable;
     private db: IDB_Manager;
+    private session: ISessionManager;
 
-    public constructor(db_manager: IDB_Manager, hash: IHashable) {
+    public constructor(db_manager: IDB_Manager, hash: IHashable, session: ISessionManager) {
         this.db = db_manager;
         this.hash = hash;
+        this.session = session;
     }
 
 
@@ -101,10 +104,12 @@ export class UserController {
             const user = await user_repo.retrieve_user_by_username(data.username);
             if (!user)
                 return null
+
             const match = await this.hash.compare(data.password, user.password);
 
-            if (match)
+            if (match && await this.session.start_user_session(user, 300)){
                 return user.to_json();
+            }
             else
                 return null
         } 
