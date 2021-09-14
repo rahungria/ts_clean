@@ -55,4 +55,12 @@ export class UserRepository {
         );
         return +rows[0].count as number;
     }
+
+    public async delete_user(id: number) {
+        const { rowCount } = await this.connection.query(
+            `DELETE FROM ${this.USER_TABLE} WHERE id=$1`,
+            [id]
+        );
+        return rowCount;
+    }
 }

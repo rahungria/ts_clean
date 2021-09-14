@@ -28,6 +28,15 @@ services:
         image: redis:6-alpine
         volumes: 
             - 'redis_data:/data'
+    db:
+        container_name: 'ts_clean_psql'
+        build:
+            context: './db'
+            dockerfile: 'dockerfile'
+        env_file: 
+            './app/.dev.env'
+        command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]
+        
 
 
 volumes: 

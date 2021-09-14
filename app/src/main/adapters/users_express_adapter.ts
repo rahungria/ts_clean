@@ -56,7 +56,7 @@ export class ExpressUsersController {
         }
     }
 
-    async authenticate_user (req: Request, res: Response, next: NextFunction) {
+    async authenticate_user_express (req: Request, res: Response, next: NextFunction) {
         try{
             const { username, password } = req.body;
             if (!(username!=null && password!=null))
@@ -71,6 +71,21 @@ export class ExpressUsersController {
         catch (error: any) {
             console.log(error);
             return res.status(500).json({error});
+        }
+    }
+
+    async delete_user_express (req: Request, res: Response, next: NextFunction) {
+        try {
+            const id = +req.params.id as number;
+            if (!id)
+                return res.status(500).json({error: 'bad request'});
+
+            const deleted = await user_controller.delete_user(id);
+            return res.status(200).json({deleted});
+        }
+        catch (error: any) {
+            console.log(error);
+            return res.status(500).json({error})
         }
     }
 }

@@ -117,4 +117,16 @@ export class UserController {
             con.release();
         }
     }
+
+    public async delete_user(id: number) {
+        const con = await this.db.get_connection();
+        try {
+            const user_repo = new UserRepository(con);
+            const r = await user_repo.delete_user(id);
+            return r;
+        } 
+        finally {
+            con.release()
+        }
+    }
 }
