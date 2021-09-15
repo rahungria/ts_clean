@@ -21,10 +21,7 @@ export class UserRepository {
             `INSERT INTO ${this.USER_TABLE}(username, password) values ($1, $2) RETURNING *;`,
             [data.username, data.password]
         );
-        if (rows.length > 0)
-            return new User(rows[0]);
-        else 
-            return null;
+        return new User(rows[0]);
     }
 
     public async retrieve_user_by_id(id: number) {

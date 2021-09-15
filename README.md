@@ -1,7 +1,6 @@
 # ts_clean
 
 ## TODO
- - unit tests with mock db (dockerized psql)
  - logging for HTTP requests (express middleware)
  - logging for bussiness_logic (file)
  - database migrations organization:

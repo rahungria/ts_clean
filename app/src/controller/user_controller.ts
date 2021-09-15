@@ -55,14 +55,15 @@ export class UserController {
             const user_repo = new UserRepository(connection);
             await connection.query('BEGIN');
             const hashed = await this.hash.hash(data.password);
-            const user = await user_repo.insert_user({username: data.username, password:hashed});
-            if (user) {
+            try { 
+                const user = await user_repo.insert_user({username: data.username, password:hashed});
                 await connection.query('COMMIT');
-                return user.to_json();
+                return user?.to_json();
             }
-            else {
-                await connection.query('ROLLBACK');
-                return null;
+            catch (error: any) {
+                console.log(error)
+                await connection.query('ROLLBACK')
+                return null
             }
         }
         finally {

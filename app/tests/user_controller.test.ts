@@ -52,11 +52,30 @@ describe('debug test', () => {
         user.id = created_user.id
     })
 
-    test('Retrieve User', async () => {
+    test('Create User with repeated username', async () => {
+        expect.assertions(1)
+        const res = await user_controller.create_new_user(user)
+        expect(res).toBeFalsy()
+    })
+
+    test('Retrieve User by ID', async () => {
         expect.assertions(2)
         const res = await user_controller.retrieve_user({id: user.id})
         expect(res.id).toEqual(user.id)
         expect(res.username).toEqual(user.username)
+    })
+
+    test('Retrieve User by Username', async () => {
+        expect.assertions(2)
+        const res = await user_controller.retrieve_user({username: user.username})
+        expect(res.id).toEqual(user.id)
+        expect(res.username).toEqual(user.username)
+    })
+
+    test('Retrieve User without enough params', async () => {
+        expect.assertions(1)
+        const res = await user_controller.retrieve_user({})
+        expect(res).toBeFalsy()
     })
 
     test('List All Users', async () => {
@@ -67,15 +86,23 @@ describe('debug test', () => {
     })
 
     test('Authenticate User', async () => {
-        expect.assertions(4)
+        expect.assertions(3)
         // right password given
         const res = await user_controller.authenticate_user(user)
         expect(res).toBeTruthy()
         expect(res.id).toBe(user.id)
         expect(res.username).toBe(user.username)
+    })
 
-        // wrong password given
+    test('Authenticate User with Wrong Password', async () => {
+        expect.assertions(1)
         const fail = await user_controller.authenticate_user({username: user.username, password: 'wrong_password'})
+        expect(fail).toBeFalsy()
+    })
+
+    test('Authenticate User with Wrong Username', async () => {
+        expect.assertions(1)
+        const fail = await user_controller.authenticate_user({username: user.username+'_wrong', password: user.password})
         expect(fail).toBeFalsy()
     })
 
