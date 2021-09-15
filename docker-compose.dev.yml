@@ -28,8 +28,8 @@ services:
         image: redis:6-alpine
         volumes: 
             - 'redis_data:/data'
-    db:
-        container_name: 'ts_clean_psql'
+    test_db:
+        container_name: 'ts_clean_psql_test'
         build:
             context: './db'
             dockerfile: 'dockerfile'

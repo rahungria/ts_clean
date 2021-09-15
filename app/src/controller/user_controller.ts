@@ -54,8 +54,8 @@ export class UserController {
         try {
             const user_repo = new UserRepository(connection);
             await connection.query('BEGIN');
-            data.password = await this.hash.hash(data.password);
-            const user = await user_repo.insert_user(data);
+            const hashed = await this.hash.hash(data.password);
+            const user = await user_repo.insert_user({username: data.username, password:hashed});
             if (user) {
                 await connection.query('COMMIT');
                 return user.to_json();
@@ -67,17 +67,6 @@ export class UserController {
         }
         finally {
             connection.release();
-        }
-    }
-
-    public async get_count() {
-        const con = await this.db.get_connection();
-        try {
-            const user_repo = new UserRepository(con);
-            return await user_repo.count();
-        }
-        finally {
-            con.release()
         }
     }
 
@@ -105,8 +94,11 @@ export class UserController {
             if (!user)
                 return null
 
+            console.log(data)
+            console.log(user)
             const match = await this.hash.compare(data.password, user.password);
-
+            console.log(match);
+            console.log(await this.session.start_user_session(user, 300))
             if (match && await this.session.start_user_session(user, 300)){
                 return user.to_json();
             }
