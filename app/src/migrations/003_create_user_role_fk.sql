@@ -1,0 +1,7 @@
+ALTER TABLE user_account
+ADD COLUMN user_role_id INTEGER DEFAULT(1),
+ADD CONSTRAINT user_role_pk
+FOREIGN KEY (user_role_id)
+REFERENCES user_role(id)
+ON DELETE SET DEFAULT
+ON UPDATE NO ACTION;

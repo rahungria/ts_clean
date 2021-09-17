@@ -15,9 +15,10 @@ services:
             - '8001:80'
     db:
         container_name: 'ts_clean_psql'
-        build:
-            context: './db'
-            dockerfile: 'dockerfile'
+        image: 'postgres:13-alpine'
+        # build:
+        #     context: './db'
+        #     dockerfile: 'dockerfile'
         env_file: 
             './app/.dev.env'
         volumes:
