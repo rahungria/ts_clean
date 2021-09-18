@@ -5,10 +5,10 @@
   "main": "src/index.js",
   "scripts": {
     "test": "jest --detectOpenHandles",
-    "dev": "nodemon --watch 'src/' --exec 'ts-node src/main/index.ts' -e ts",
+    "dev": "nodemon --watch 'src/' --exec 'ts-node src/main/index.ts --log ./logs --log-level debug' -e ts",
     "tsc": "tsc",
     "ts-node": "ts-node",
-    "start": "ts-node src/main/index.ts"
+    "start": "ts-node src/main/index.ts -- --log ./logs"
   },
   "repository": {
     "type": "git",
@@ -41,6 +41,7 @@
     "bcrypt": "^5.0.1",
     "commander": "^8.2.0",
     "express": "^4.17.1",
+    "log4js": "^6.3.0",
     "pg": "^8.7.1",
     "tedis": "^0.1.12"
   }

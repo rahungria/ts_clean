@@ -1,15 +1,20 @@
 import { UserController } from '../src/controller/user_controller';
 
+import { PGDriver } from '../src/drivers/pg';
 import { BcryptDriver } from '../src/drivers/bcrypt'
+import { DefaultLogger } from '../src/drivers/logger'
 import { RedisSessionManager } from '../src/drivers/redis_session'
 
 import { MockHash } from './mock_drivers/hash_mock';
 import { MockPSQL } from "./mock_drivers/psql_mock";
 import { MockRedisSession } from './mock_drivers/redis_session_mock';
 
+import { ILogger } from '../src/ports/logger_port';
+import { IHashable } from '../src/ports/hash_port';
 import { IDB_Manager } from '../src/ports/db_manager_port';
 import { ISessionManager } from '../src/ports/session_manager_port';
-import { IHashable } from '../src/ports/hash_port';
+
+import path from 'path';
 
 
 const random_user = () => {
@@ -21,26 +26,31 @@ const random_user = () => {
 
 
 describe('debug test', () => {
-    let psql: IDB_Manager
+    let db: IDB_Manager
     let redis: ISessionManager
     let hash: IHashable
     let user_controller: UserController
+    let logger: ILogger
     let user: any
 
     beforeAll(() => {
-        psql = new MockPSQL();
+        logger = new DefaultLogger({
+            mirror_stdout: false,
+            log_root: path.join(path.resolve(__dirname), 'logs'),
+            log_identifier: 'test_usercontroller',
+            log_level: 'debug'
+        })
+        db = new PGDriver({host: process.env.POSTGRES_TEST_HOST}, logger);
         redis = new MockRedisSession();
         // hash = new MockHash();
-        hash = new BcryptDriver()
+        hash = new BcryptDriver(logger);
 
-        user_controller = new UserController(psql, hash, redis);
+        user_controller = new UserController(db, hash, redis, logger);
         user = random_user();
-        console.log('Connect to Mock DB')
 
     })
     afterAll(async () => {
-        console.log('Ending Connection to Mock DB')
-        await psql.end()
+        await db.end()
     })
     
 
@@ -79,9 +89,11 @@ describe('debug test', () => {
     })
 
     test('List All Users', async () => {
-        expect.assertions(2)
+        expect.assertions(4)
         const res = await user_controller.list_users({limit:10, offset:0})
         expect(res.count).toBe(1)
+        expect(res.next_page).toBeFalsy()
+        expect(res.prev_page).toBeFalsy()
         expect(res.users).toEqual(expect.arrayContaining([{username: user.username, id:user.id}]))
     })
 
