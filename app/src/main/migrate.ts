@@ -4,6 +4,7 @@ import fs from 'fs';
 import { Command, Option } from 'commander'
 
 import { PGDriver } from '../drivers/pg'
+import { IDB_Manager } from '../ports/db_manager_port'
 
 
 export type Migration = {
@@ -13,9 +14,10 @@ export type Migration = {
     executed: boolean,
 }
 
-type file = {
+type MigrationFile = {
     file: string,
-    absolute: string 
+    absolute: string,
+    order: number
 }
 
 
@@ -31,8 +33,8 @@ class MigrationError extends Error {
 }
 
 
-const init = async (pg: PGDriver) => {
-    const connection = await pg.get_connection()
+const init = async (db: IDB_Manager) => {
+    const connection = await db.get_connection()
     try {
         await connection.query(`SELECT 'migration'::regclass`)
     } catch (error: any) {
@@ -48,30 +50,52 @@ const init = async (pg: PGDriver) => {
             );`
         )
     } finally {
-        pg.close_connection(connection);
+        db.close_connection(connection);
     }
 }
 
-
-const register_case = async (pg: PGDriver, files: file[]) => {
-    const connection = await pg.get_connection()
+const validate_case = async (db: IDB_Manager, files: MigrationFile[]) => {
+    console.log("VALIDATING MIGRATIONS...")
+    const con = await db.get_connection()
     try {
-        try {
-            await connection.query(`SELECT 'migration'::regclass`)
-        } catch (error: any) {
-            await connection.query(
-                `CREATE TABLE IF NOT EXISTS migration (
-                    id SERIAL,
-                    filename VARCHAR(255) NOT NULL,
-                    exec_order INTEGER NOT NULL,
-                    executed BOOLEAN DEFAULT FALSE,
-
-                    UNIQUE(filename),
-                    UNIQUE(exec_order)
-                );`
-            )
+        const migs = (await con.query('SELECT * FROM migration;')).rows as Migration[]
+        let err = false
+        for (const file of files) {
+            const mig = migs.find(m => m.filename == file.file)
+            if (!mig) {
+                console.warn(`Found Unregistered Migration '${file.file}'`)
+                err = true
+            }
+            if (mig && file.order != mig.exec_order) {
+                console.error(
+                    `Local migration order doesn't match Registered Migrations!\nLOCAL:\t\tfile:${file.file}, order:${file.order}\nREGISTERED:\tfile:${mig.filename}, order:${mig.exec_order}, id:${mig.id}`
+                )
+                err = true
+            }
         }
-        let unregistered_files: file[] = [];
+        for (const mig of migs) {
+            const file = files.find(f => f.file == mig.filename)
+            if (!file) {
+                console.error(`Registered Migrations not found locally: ${mig.filename}`)
+                err = true
+            }
+        }
+        if (err) {
+            console.error('Errors found, Terminating...')
+            exit(1)
+        } else {
+            console.log('No issues found.')
+        }
+    } finally {
+        db.close_connection(con)
+    }
+}
+
+const register_case = async (db: IDB_Manager, files: MigrationFile[]) => {
+    console.log('REGISTERING MIGRATIONS...')
+    const connection = await db.get_connection()
+    try {
+        let unregistered_files: MigrationFile[] = [];
         for (const file of files) {
             const { rowCount } = await connection.query(
                 'SELECT * FROM migration WHERE filename=$1;',
@@ -86,8 +110,7 @@ const register_case = async (pg: PGDriver, files: file[]) => {
         await connection.query('BEGIN')
         for (const file of unregistered_files){
             console.log(`Registering Migration of: ${file.absolute}`)
-            const order = +file.file.substr(0,3)
-            let r = await connection.query('SELECT * from migration WHERE exec_order=$1', [order])
+            let r = await connection.query('SELECT * from migration WHERE exec_order=$1', [file.order])
             if (r.rowCount > 0) {
                 console.log("Local Migration Order doesn't match Database!")
                 console.log(r.rows[0])
@@ -96,20 +119,22 @@ const register_case = async (pg: PGDriver, files: file[]) => {
             }
             const {rows} = await connection.query(
                 'INSERT INTO migration(filename, exec_order) VALUES ($1, $2) RETURNING *;',
-                [file.file, order]
+                [file.file, file.order]
             )
             _files.push(rows);
         }
         await connection.query('COMMIT')
+        console.log('Migrations registered.')
     }
     finally {
-        pg.close_connection(connection)
+        db.close_connection(connection)
     }
     
 }
 
-const execute_case = async (pg: PGDriver, files: file[], folder: string) => {
-    const con = await pg.get_connection()
+const execute_case = async (db: IDB_Manager, files: MigrationFile[], folder: string) => {
+    console.log("EXECUTING MIGRATIONS")
+    const con = await db.get_connection()
     try {
         const migrations = (await con.query(
             `SELECT * FROM migration 
@@ -121,13 +146,14 @@ const execute_case = async (pg: PGDriver, files: file[], folder: string) => {
             await con.query('BEGIN;')
             for (const migration of migrations) {
                 const f = path.join(folder, migration.filename)
-                const savepoint = migration.filename.split('.')[0].substr(4)
+                // remove all pesky symbols no database would accept as SAVEPOINT name
+                const savepoint = migration.filename.replace(/[0-9\!\@\#\$\%\"\&\*\(\)\-\_\=\+\,\<\.\>\;\:/\?\\\/]/g, '')
                 try {
                     await con.query(`SAVEPOINT ${savepoint};`)
                     console.log(`Executing Migration of: ${f}`)
                     const query = fs.readFileSync(f).toString()
-                    const r = await con.query(query)
-                    const _ = await con.query(
+                    await con.query(query)
+                    await con.query(
                         `UPDATE migration 
                         SET EXECUTED=TRUE
                         WHERE id=$1`,
@@ -140,25 +166,29 @@ const execute_case = async (pg: PGDriver, files: file[], folder: string) => {
                 }
             }
             await con.query('COMMIT')
+            console.log('Migrations executed.') 
         } catch (error: any) {
             console.log(error)
             con.query('ROLLBACK')
             console.log(`Failed executing query for migration#${error.migration.id}: ${error.file}\nRolling Back all changes...`)
-        }
-                
+        } 
     } finally {
-        await pg.close_connection(con)
+        await db.close_connection(con)
     }
 }
 
-const unregister_case = async (pg: PGDriver, all: boolean) => {
-    const con = await pg.get_connection()
+const unregister_case = async (db: IDB_Manager) => {
+    console.log("UNREGISTERING ALL MIGRATIONS...")
+    const con = await db.get_connection()
     try {
         await con.query('DELETE FROM migration;')
+        console.log("Migrations unregistered.")
     } finally {
-        pg.close_connection(con);
+        db.close_connection(con);
     }
 }
+
+
 
 
 ;(async ()=>{
@@ -176,7 +206,7 @@ const unregister_case = async (pg: PGDriver, all: boolean) => {
         .addOption(
             new Option('-a, --action <command>', 'action to be executed')
             .makeOptionMandatory()
-            .choices(['register', 'unregister', 'execute'])
+            .choices(['register', 'unregister', 'execute', 'validate'])
         )
         .addOption(
             new Option('-v --verbose <level>', 'verbosity level')
@@ -187,13 +217,16 @@ const unregister_case = async (pg: PGDriver, all: boolean) => {
     program.parse(process.argv)
     const args = program.opts()
     
-    let migration_files: file[]
+    let migration_files: MigrationFile[]
 
     try {
         migration_files = fs.readdirSync(args.migrations).map(file => {
+            let p = path.join(args.migrations, file)
+            p = fs.realpathSync(p)
             return {
-                absolute: path.join(args.migrations, file),
-                file: file
+                absolute: p,
+                file: file,
+                order: +file.substr(0, 3)
             }
         })
     } catch (error: any) {
@@ -201,24 +234,25 @@ const unregister_case = async (pg: PGDriver, all: boolean) => {
         exit(1)
     }
 
-    const pg = new PGDriver({host: args.host})
+    const db = new PGDriver({host: args.host})
 
     try {
-        await init(pg);
-        if (args.action == 'register') {
-            console.log('REGISTERING LOCAL MIGRATIONS...')
-            await register_case(pg, migration_files)
+        await init(db);
+        if (args.action == 'validate') {
+            await validate_case(db, migration_files)
         }
-        else if (args.action == 'execute') {
-            console.log('EXECUTING LOCAL MIGRATIONS...')
-            await execute_case(pg, migration_files, args.migrations)
+        if (args.action == 'register') {
+            await register_case(db, migration_files)
         }
         else if (args.action == 'unregister') {
-            console.log("UNREGISTERING ALL MIGRATIONS...")
-            await unregister_case(pg, true)
+            await unregister_case(db)
+        }
+        else if (args.action == 'execute') {
+            await validate_case(db, migration_files)
+            await execute_case(db, migration_files, args.migrations)
         }
     } finally {
-        pg.end()
+        db.end()
     }
 
 })();
