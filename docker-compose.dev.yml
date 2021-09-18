@@ -31,9 +31,10 @@ services:
             - 'redis_data:/data'
     test_db:
         container_name: 'ts_clean_psql_test'
-        build:
-            context: './db'
-            dockerfile: 'dockerfile'
+        image: 'postgres:13-alpine'
+        # build:
+        #     context: './db'
+        #     dockerfile: 'dockerfile'
         env_file: 
             './app/.dev.env'
         command: ["postgres", "-c", "log_statement=all", "-c", "log_destination=stderr"]

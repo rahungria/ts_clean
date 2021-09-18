@@ -4,7 +4,7 @@ import { UserController } from "../controller/user_controller";
 import { RedisSessionManager } from "../drivers/redis_session"
 
 
-const pg_driver = new PGDriver();
+const pg_driver = new PGDriver({});
 const bcrypt_driver = new BcryptDriver();
 const redis_session = new RedisSessionManager();
 

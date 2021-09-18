@@ -1,6 +1,7 @@
 import { exit } from "process";
 import * as path from 'path';
 import fs from 'fs';
+import { Command, Option } from 'commander'
 
 import { PGDriver } from '../drivers/pg'
 
@@ -27,13 +28,6 @@ class MigrationError extends Error {
         this.migration = migration;
         this.file = file;
     }
-}
-
-
-const help_case = () => {
-    console.log('Usage:')
-    console.log(`${__filename} [register|unregister|execute] migrations_folder`)
-    console.log("\nCreates a migrations table if doesn't exist and executes the migrations in order if not flagged as executed")
 }
 
 
@@ -168,41 +162,58 @@ const unregister_case = async (pg: PGDriver, all: boolean) => {
 
 
 ;(async ()=>{
-    if (process.argv[2] == 'help') {
-        help_case()
-        exit(0)
-    }
+    const program = new Command()
+    program.version('0.1')
+    program
+        .addOption(
+            new Option('-H, --host <host>', 'optional DB host to run migrations against')
+            .env('DB_HOST')
+        )
+        .addOption(
+            new Option('-m, --migrations <folder>', 'local folder where migrations are stored')
+            .makeOptionMandatory()
+        )
+        .addOption(
+            new Option('-a, --action <command>', 'action to be executed')
+            .makeOptionMandatory()
+            .choices(['register', 'unregister', 'execute'])
+        )
+        .addOption(
+            new Option('-v --verbose <level>', 'verbosity level')
+            .choices(['0', '1', '2'])
+            .default('0', 'quiet (0)')
+        )
+
+    program.parse(process.argv)
+    const args = program.opts()
     
-    const migrations_folder = process.argv[3]
     let migration_files: file[]
-    if (migrations_folder == undefined) {
-        console.log(`insuficient args passed (use ${__filename} help)`)
-        exit(1)
-    }
+
     try {
-        migration_files = fs.readdirSync(migrations_folder).map(file => {
+        migration_files = fs.readdirSync(args.migrations).map(file => {
             return {
-                absolute: path.join(migrations_folder, file),
+                absolute: path.join(args.migrations, file),
                 file: file
             }
         })
     } catch (error: any) {
-        console.log(error)
+        console.log('Invalid path to Migrations')
         exit(1)
     }
 
-    const pg = new PGDriver()
+    const pg = new PGDriver({host: args.host})
+
     try {
         await init(pg);
-        if (process.argv[2] == 'register') {
+        if (args.action == 'register') {
             console.log('REGISTERING LOCAL MIGRATIONS...')
             await register_case(pg, migration_files)
         }
-        else if (process.argv[2] == 'execute') {
+        else if (args.action == 'execute') {
             console.log('EXECUTING LOCAL MIGRATIONS...')
-            await execute_case(pg, migration_files, migrations_folder)
+            await execute_case(pg, migration_files, args.migrations)
         }
-        else if (process.argv[2] == 'unregister') {
+        else if (args.action == 'unregister') {
             console.log("UNREGISTERING ALL MIGRATIONS...")
             await unregister_case(pg, true)
         }
