@@ -1,13 +1,13 @@
 import fs from 'fs';
-import * as path from 'path';
-import { exit } from "process";
+import path from 'path';
+
 import { Command, Option } from 'commander'
 
-import { DefaultLogger } from '../drivers/logger'
 import { PGDriver } from '../drivers/pg'
+import { DefaultLogger } from '../drivers/logger'
 
-import { IDB_Manager } from '../ports/db_manager_port'
 import { ILogger } from '../ports/logger_port';
+import { IDB_Manager } from '../ports/db_manager_port'
 
 
 export type Migration = {
@@ -36,7 +36,7 @@ class MigrationError extends Error {
 }
 
 
-class MigrationsManager {
+export class MigrationManager {
     private logger: ILogger
     private db: IDB_Manager
     private mig_folder: string
@@ -59,7 +59,7 @@ class MigrationsManager {
             })
         } catch (error: any) {
             this.logger.fatal('Invalid path to Migrations or Log')
-            exit(1)
+            throw error
         }
     }
 
@@ -157,7 +157,7 @@ class MigrationsManager {
                         this.logger.error("Local Migration Order doesn't match Database!")
                         this.logger.debug(r.rows[0])
                         await connection.query('ROLLBACK')
-                        exit(1);
+                        throw new Error('Migration Validation Error')
                     }
                     const {rows} = await connection.query(
                         'INSERT INTO migration(filename, exec_order) VALUES ($1, $2) RETURNING *;',
@@ -219,30 +219,24 @@ class MigrationsManager {
         }
     }
 
-    public async handle(
-        action: 'validate'|'unregister'|'register'|'execute') {
-        try {
-            this.logger.info(`Handling action: '${action}'`)
-            await this.init()
-            if (action == 'validate') {
-                await this.validate()
-            }
-            else if (action == 'unregister') {
-                await this.unregister()
-            } 
-            else if (action == 'register') {
-                await this.register()
-            }
-            else if (action == 'execute') {
-                await this.validate()
-                await this.execute()
-            }
-            else {
-                this.logger.error(`Invalid action '${action}'`)
-            }
-        } finally {
-            this.db.end()
-            exit(0)
+    public async handle(action: 'validate'|'unregister'|'register'|'execute') {
+        this.logger.info(`Handling action: '${action}'`)
+        await this.init()
+        if (action == 'validate') {
+            await this.validate()
+        }
+        else if (action == 'unregister') {
+            await this.unregister()
+        } 
+        else if (action == 'register') {
+            await this.register()
+        }
+        else if (action == 'execute') {
+            await this.validate()
+            await this.execute()
+        }
+        else {
+            this.logger.error(`Invalid action '${action}'`)
         }
     }
 }
@@ -250,48 +244,49 @@ class MigrationsManager {
 
 
 
-;(async ()=>{
-    const program = new Command()
-    program.version('0.1')
-    program
-        .addOption(
-            new Option('-H, --host <host>', 'optional DB host to run migrations against')
-            .env('DB_HOST')
-        )
-        .addOption(
-            new Option('-m, --migrations <folder>', 'local folder where migrations are stored')
-            .makeOptionMandatory()
-        )
-        .addOption(
-            new Option('-a, --action <command>', 'action to be executed')
-            .makeOptionMandatory()
-            .choices(['register', 'unregister', 'execute', 'validate'])
-        )
-        .addOption(
-            new Option('-l --log <log>', 'log root')
-        )
-        .addOption(
-            new Option('-ll, --log-level <loglevel>', 'level of log')
-            .choices(['debug', 'info', 'warn', 'error', 'fatal'])
-            .default('debug', 'DEBUG level logging')
-        )
-
-    program.parse(process.argv)
-    const args = program.opts()
+(async () => {
+    if (require.main === module){
+        const program = new Command()
+        program.version('1.0')
+        program
+            .addOption(
+                new Option('-H, --host <host>', 'optional DB host to run migrations against')
+                .env('DB_HOST')
+            )
+            .addOption(
+                new Option('-m, --migrations <folder>', 'local folder where migrations are stored')
+                .makeOptionMandatory()
+            )
+            .addOption(
+                new Option('-a, --action <command>', 'action to be executed')
+                .makeOptionMandatory()
+                .choices(['register', 'unregister', 'execute', 'validate'])
+            )
+            .addOption(
+                new Option('-l --log <log>', 'log root')
+            )
+            .addOption(
+                new Option('-ll, --log-level <loglevel>', 'level of log')
+                .choices(['debug', 'info', 'warn', 'error', 'fatal'])
+                .default('debug', 'DEBUG level logging')
+            )
     
-    let migration_files: MigrationFile[]
-
-    const logger = new DefaultLogger({
-        mirror_stdout: true,
-        log_root: args.log,
-        log_identifier: 'migrations',
-        log_level: args.logLevel
-    })
-
-    const db = new PGDriver({host: args.host}, logger)
-
-    const mig_manager = new MigrationsManager(logger, db, args.migrations)
-
-    mig_manager.handle(args.action)
-
+        program.parse(process.argv)
+        const args = program.opts()
+        
+        const logger = new DefaultLogger({
+            mirror_stdout: true,
+            log_root: args.log,
+            log_identifier: 'migrations',
+            log_level: args.logLevel
+        })
+    
+        const db = new PGDriver({host: args.host}, logger)
+    
+        const mig_manager = new MigrationManager(logger, db, args.migrations)
+    
+        await mig_manager.handle(args.action)
+    
+        db.end()
+    }
 })();

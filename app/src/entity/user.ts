@@ -10,7 +10,7 @@ export class User {
     public id?: number;
     public username: string;
     public password: string;
-    public role: string
+    public role?: string
 
     public constructor(data: UserType) {
         this.id = data.id

@@ -5,10 +5,10 @@
   "main": "src/index.js",
   "scripts": {
     "test": "jest --detectOpenHandles",
-    "dev": "nodemon --watch 'src/' --exec 'ts-node src/main/index.ts --log ./logs --log-level debug' -e ts",
+    "dev": "nodemon --watch 'src/' --exec 'ts-node src/main/index.ts --log ./logs --log-level debug -m src/migrations' -e ts",
     "tsc": "tsc",
     "ts-node": "ts-node",
-    "start": "ts-node src/main/index.ts -- --log ./logs"
+    "start": "ts-node src/main/index.ts -- --log ./logs --migrations src/migrations"
   },
   "repository": {
     "type": "git",

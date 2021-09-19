@@ -1,13 +1,21 @@
 import express from "express";
+import { Core } from "./core";
 
-import { router } from "./router";
+import { ExpressRouter } from "./router";
 
+Core.get().then(core => {
+    const router = new ExpressRouter(core)
+    const app = express();
 
-const app = express();
+    const PORT = process.env.PORT || 8001;
 
-const PORT = process.env.PORT || 8001;
+    app.use(express.json());
+    app.use(router.router);
 
-app.use(express.json());
-app.use(router);
-
-app.listen(PORT, () => console.log(`Running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`Running on port ${PORT}`));
+},
+error => {
+    console.log('Failed to Init core')
+    console.log(error)
+    throw error
+})

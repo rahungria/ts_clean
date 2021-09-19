@@ -39,7 +39,7 @@ export class UserRepository {
         );
         const user = new User(rows[0])
         this.logger.debug(`[UserRepository] created user#${user.id}`)
-        const joined_user = await this.retrieve_user_by_id(user.id)
+        const joined_user = await this.retrieve_user_by_id(user.id!)
         return joined_user;
     }
 
