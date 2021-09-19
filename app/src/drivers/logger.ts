@@ -54,7 +54,7 @@ export class DefaultLogger implements ILogger {
                 }
             }
         })
-        this.logger = log4js.getLogger()
+        this.logger = log4js.getLogger(log_identifier)
         this.logger.addContext('identifier', log_identifier)
     }
 

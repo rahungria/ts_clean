@@ -1,10 +1,13 @@
-import { exit } from "process";
-import * as path from 'path';
 import fs from 'fs';
+import * as path from 'path';
+import { exit } from "process";
 import { Command, Option } from 'commander'
 
+import { DefaultLogger } from '../drivers/logger'
 import { PGDriver } from '../drivers/pg'
+
 import { IDB_Manager } from '../ports/db_manager_port'
+import { ILogger } from '../ports/logger_port';
 
 
 export type Migration = {
@@ -33,158 +36,213 @@ class MigrationError extends Error {
 }
 
 
-const init = async (db: IDB_Manager) => {
-    const connection = await db.get_connection()
-    try {
-        await connection.query(`SELECT 'migration'::regclass`)
-    } catch (error: any) {
-        await connection.query(
-            `CREATE TABLE IF NOT EXISTS migration (
-                id SERIAL,
-                filename VARCHAR(255) NOT NULL,
-                exec_order INTEGER NOT NULL,
-                executed BOOLEAN DEFAULT FALSE,
+class MigrationsManager {
+    private logger: ILogger
+    private db: IDB_Manager
+    private mig_folder: string
+    private mig_files: MigrationFile[]
 
-                UNIQUE(filename),
-                UNIQUE(exec_order)
-            );`
-        )
-    } finally {
-        db.close_connection(connection);
-    }
-}
+    constructor(logger: ILogger, db: IDB_Manager, mig_folder: string) {
+        this.logger = logger
+        this.db = db
+        this.mig_folder = mig_folder
 
-const validate_case = async (db: IDB_Manager, files: MigrationFile[]) => {
-    console.log("VALIDATING MIGRATIONS...")
-    const con = await db.get_connection()
-    try {
-        const migs = (await con.query('SELECT * FROM migration;')).rows as Migration[]
-        let err = false
-        for (const file of files) {
-            const mig = migs.find(m => m.filename == file.file)
-            if (!mig) {
-                console.warn(`Found Unregistered Migration '${file.file}'`)
-                err = true
-            }
-            if (mig && file.order != mig.exec_order) {
-                console.error(
-                    `Local migration order doesn't match Registered Migrations!\nLOCAL:\t\tfile:${file.file}, order:${file.order}\nREGISTERED:\tfile:${mig.filename}, order:${mig.exec_order}, id:${mig.id}`
-                )
-                err = true
-            }
-        }
-        for (const mig of migs) {
-            const file = files.find(f => f.file == mig.filename)
-            if (!file) {
-                console.error(`Registered Migrations not found locally: ${mig.filename}`)
-                err = true
-            }
-        }
-        if (err) {
-            console.error('Errors found, Terminating...')
+        try {
+            this.mig_files = fs.readdirSync(mig_folder).map(file => {
+                let p = path.join(mig_folder, file)
+                p = fs.realpathSync(p)
+                return {
+                    absolute: p,
+                    file: file,
+                    order: +file.substr(0, 3)
+                }
+            })
+        } catch (error: any) {
+            this.logger.fatal('Invalid path to Migrations or Log')
             exit(1)
-        } else {
-            console.log('No issues found.')
         }
-    } finally {
-        db.close_connection(con)
     }
-}
 
-const register_case = async (db: IDB_Manager, files: MigrationFile[]) => {
-    console.log('REGISTERING MIGRATIONS...')
-    const connection = await db.get_connection()
-    try {
-        let unregistered_files: MigrationFile[] = [];
-        for (const file of files) {
-            const { rowCount } = await connection.query(
-                'SELECT * FROM migration WHERE filename=$1;',
-                [file.file]
-            )
-            if (rowCount == 0) {
-                unregistered_files.push(file)
-            }
-        }
-        console.log(`Found ${unregistered_files.length} Unregistered Migrations...`)
-        let _files  = [];
-        await connection.query('BEGIN')
-        for (const file of unregistered_files){
-            console.log(`Registering Migration of: ${file.absolute}`)
-            let r = await connection.query('SELECT * from migration WHERE exec_order=$1', [file.order])
-            if (r.rowCount > 0) {
-                console.log("Local Migration Order doesn't match Database!")
-                console.log(r.rows[0])
-                await connection.query('ROLLBACK')
-                exit(1);
-            }
-            const {rows} = await connection.query(
-                'INSERT INTO migration(filename, exec_order) VALUES ($1, $2) RETURNING *;',
-                [file.file, file.order]
-            )
-            _files.push(rows);
-        }
-        await connection.query('COMMIT')
-        console.log('Migrations registered.')
-    }
-    finally {
-        db.close_connection(connection)
-    }
+    private async init () {
+        const connection = await this.db.get_connection()
+        try {
+            await connection.query(`SELECT 'migration'::regclass`)
+        } catch (error: any) {
+            await connection.query(
+                `CREATE TABLE IF NOT EXISTS migration (
+                    id SERIAL,
+                    filename VARCHAR(255) NOT NULL,
+                    exec_order INTEGER NOT NULL,
+                    executed BOOLEAN DEFAULT FALSE,
     
-}
+                    UNIQUE(filename),
+                    UNIQUE(exec_order)
+                );`
+            )
+        } finally {
+            this.db.close_connection(connection);
+        }
+    }
 
-const execute_case = async (db: IDB_Manager, files: MigrationFile[], folder: string) => {
-    console.log("EXECUTING MIGRATIONS")
-    const con = await db.get_connection()
-    try {
-        const migrations = (await con.query(
-            `SELECT * FROM migration 
-            WHERE executed is FALSE
-            ORDER BY exec_order ASC;`
-        )).rows as Migration[]
-        console.log(`Found ${migrations.length} unexecuted Migrations...`)
-        try{
-            await con.query('BEGIN;')
-            for (const migration of migrations) {
-                const f = path.join(folder, migration.filename)
-                // remove all pesky symbols no database would accept as SAVEPOINT name
-                const savepoint = migration.filename.replace(/[0-9\!\@\#\$\%\"\&\*\(\)\-\_\=\+\,\<\.\>\;\:/\?\\\/]/g, '')
-                try {
-                    await con.query(`SAVEPOINT ${savepoint};`)
-                    console.log(`Executing Migration of: ${f}`)
-                    const query = fs.readFileSync(f).toString()
-                    await con.query(query)
-                    await con.query(
-                        `UPDATE migration 
-                        SET EXECUTED=TRUE
-                        WHERE id=$1`,
-                        [migration.id]
+    private async validate () {
+        this.logger.info("VALIDATING MIGRATIONS...")
+        const con = await this.db.get_connection()
+        try {
+            const migs = (await con.query('SELECT * FROM migration;')).rows as Migration[]
+            let err = false
+            for (const file of this.mig_files) {
+                const mig = migs.find(m => m.filename == file.file)
+                if (!mig) {
+                    this.logger.warn(`Found Unregistered Migration '${file.file}'`)
+                    err = true
+                }
+                if (mig && file.order != mig.exec_order) {
+                    this.logger.error(
+                        `Local migration order doesn't match Registered Migrations!\nLOCAL:\t\tfile:${file.file}, order:${file.order}\nREGISTERED:\tfile:${mig.filename}, order:${mig.exec_order}, id:${mig.id}`
                     )
-                    await con.query(`RELEASE SAVEPOINT ${savepoint};`)
-                } catch (error: any) {
-                    const err = new MigrationError(error.message, migration, f);
-                    throw err
+                    err = true
                 }
             }
-            await con.query('COMMIT')
-            console.log('Migrations executed.') 
-        } catch (error: any) {
-            console.log(error)
-            con.query('ROLLBACK')
-            console.log(`Failed executing query for migration#${error.migration.id}: ${error.file}\nRolling Back all changes...`)
-        } 
-    } finally {
-        await db.close_connection(con)
+            for (const mig of migs) {
+                const file = this.mig_files.find(f => f.file == mig.filename)
+                if (!file) {
+                    this.logger.error(`Registered Migrations not found locally: ${mig.filename}`)
+                    err = true
+                }
+            }
+            if (err) {
+                this.logger.error('Invalid State Found, Terminating...')
+                throw new Error('Invalid State Found, Terminating...')
+            } else {
+                this.logger.info('No issues found.')
+            }
+        } finally {
+            this.db.close_connection(con)
+        }
     }
-}
 
-const unregister_case = async (db: IDB_Manager) => {
-    console.log("UNREGISTERING ALL MIGRATIONS...")
-    const con = await db.get_connection()
-    try {
-        await con.query('DELETE FROM migration;')
-        console.log("Migrations unregistered.")
-    } finally {
-        db.close_connection(con);
+    private async unregister () {
+        this.logger.info("UNREGISTERING ALL MIGRATIONS...")
+        const con = await this.db.get_connection()
+        try {
+            await con.query('DELETE FROM migration;')
+            this.logger.info("Migrations unregistered.")
+        } finally {
+            this.db.close_connection(con);
+        }
+    }
+
+    
+    private async register () {
+        this.logger.info('REGISTERING MIGRATIONS...')
+        const connection = await this.db.get_connection()
+        try {
+            let unregistered_files: MigrationFile[] = [];
+            for (const file of this.mig_files) {
+                const { rowCount } = await connection.query(
+                    'SELECT * FROM migration WHERE filename=$1;',
+                    [file.file]
+                    )
+                    if (rowCount == 0) {
+                        unregistered_files.push(file)
+                    }
+                }
+                this.logger.info(`Found ${unregistered_files.length} Unregistered Migrations...`)
+                let _files  = [];
+                await connection.query('BEGIN')
+                for (const file of unregistered_files){
+                    this.logger.info(`Registering Migration of: ${file.absolute}`)
+                    let r = await connection.query('SELECT * from migration WHERE exec_order=$1', [file.order])
+                    if (r.rowCount > 0) {
+                        this.logger.error("Local Migration Order doesn't match Database!")
+                        this.logger.debug(r.rows[0])
+                        await connection.query('ROLLBACK')
+                        exit(1);
+                    }
+                    const {rows} = await connection.query(
+                        'INSERT INTO migration(filename, exec_order) VALUES ($1, $2) RETURNING *;',
+                        [file.file, file.order]
+                        )
+                        _files.push(rows);
+                        this.logger.debug(`inserting migration: file:${file.file}, order:${file.order}`)
+                    }
+                    await connection.query('COMMIT')
+                    this.logger.info('Migrations registered.')
+        }
+        finally {
+            this.db.close_connection(connection)
+        }       
+    }
+            
+    private async execute () {
+        this.logger.info("EXECUTING MIGRATIONS")
+        const con = await this.db.get_connection()
+        try {
+            const migrations = (await con.query(
+                `SELECT * FROM migration 
+                WHERE executed is FALSE
+                ORDER BY exec_order ASC;`
+            )).rows as Migration[]
+            this.logger.info(`Found ${migrations.length} unexecuted Migrations...`)
+            try{
+                await con.query('BEGIN;')
+                for (const migration of migrations) {
+                    const f = path.join(this.mig_folder, migration.filename)
+                    // remove all pesky symbols no database would accept as SAVEPOINT name
+                    const savepoint = migration.filename.replace(/[0-9\!\@\#\$\%\"\&\*\(\)\-\_\=\+\,\<\.\>\;\:/\?\\\/]/g, '')
+                    try {
+                        await con.query(`SAVEPOINT ${savepoint};`)
+                        this.logger.info(`Executing Migration of: ${f}`)
+                        const query = fs.readFileSync(f).toString()
+                        await con.query(query)
+                        await con.query(
+                            `UPDATE migration 
+                            SET EXECUTED=TRUE
+                            WHERE id=$1`,
+                            [migration.id]
+                        )
+                        await con.query(`RELEASE SAVEPOINT ${savepoint};`)
+                    } catch (error: any) {
+                        const err = new MigrationError(error.message, migration, f);
+                        throw err
+                    }
+                }
+                await con.query('COMMIT')
+                this.logger.info('Migrations executed.') 
+            } catch (error: any) {
+                this.logger.error(error)
+                con.query('ROLLBACK')
+                this.logger.error(`Failed executing query for migration#${error.migration.id}: ${error.file}\nRolling Back all changes...`)
+            } 
+        } finally {
+            await this.db.close_connection(con)
+        }
+    }
+
+    public async handle(action: string) {
+        try {
+            this.logger.info(`Handling action: '${action}'`)
+            await this.init()
+            if (action == 'validate') {
+                await this.validate()
+            }
+            else if (action == 'unregister') {
+                await this.unregister()
+            } 
+            else if (action == 'register') {
+                await this.register()
+            }
+            else if (action == 'execute') {
+                await this.validate()
+                await this.execute()
+            }
+            else {
+                this.logger.error(`Invalid action '${action}'`)
+            }
+        } finally {
+            this.db.end()
+            exit(0)
+        }
     }
 }
 
@@ -209,9 +267,12 @@ const unregister_case = async (db: IDB_Manager) => {
             .choices(['register', 'unregister', 'execute', 'validate'])
         )
         .addOption(
-            new Option('-v --verbose <level>', 'verbosity level')
-            .choices(['0', '1', '2'])
-            .default('0', 'quiet (0)')
+            new Option('-l --log <log>', 'log root')
+        )
+        .addOption(
+            new Option('-ll, --log-level <loglevel>', 'level of log')
+            .choices(['debug', 'info', 'warn', 'error', 'fatal'])
+            .default('debug', 'DEBUG level logging')
         )
 
     program.parse(process.argv)
@@ -219,40 +280,17 @@ const unregister_case = async (db: IDB_Manager) => {
     
     let migration_files: MigrationFile[]
 
-    try {
-        migration_files = fs.readdirSync(args.migrations).map(file => {
-            let p = path.join(args.migrations, file)
-            p = fs.realpathSync(p)
-            return {
-                absolute: p,
-                file: file,
-                order: +file.substr(0, 3)
-            }
-        })
-    } catch (error: any) {
-        console.log('Invalid path to Migrations')
-        exit(1)
-    }
+    const logger = new DefaultLogger({
+        mirror_stdout: true,
+        log_root: args.log,
+        log_identifier: 'migrations',
+        log_level: args.logLevel
+    })
 
-    const db = new PGDriver({host: args.host})
+    const db = new PGDriver({host: args.host}, logger)
 
-    try {
-        await init(db);
-        if (args.action == 'validate') {
-            await validate_case(db, migration_files)
-        }
-        if (args.action == 'register') {
-            await register_case(db, migration_files)
-        }
-        else if (args.action == 'unregister') {
-            await unregister_case(db)
-        }
-        else if (args.action == 'execute') {
-            await validate_case(db, migration_files)
-            await execute_case(db, migration_files, args.migrations)
-        }
-    } finally {
-        db.end()
-    }
+    const mig_manager = new MigrationsManager(logger, db, args.migrations)
+
+    mig_manager.handle(args.action)
 
 })();
