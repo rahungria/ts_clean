@@ -4,6 +4,7 @@ import { ILogger } from "../ports/logger_port";
 
 export class UserRepository {
     private USER_TABLE = 'user_account'
+    private USER_ROLE_TABLE = 'user_role'
     private connection: PoolClient;  // TODO abstract db connection (like PEP 249)
     private logger: ILogger;
 
@@ -15,7 +16,15 @@ export class UserRepository {
     public async list_all({limit, offset}: {limit:number, offset:number}) {
         this.logger.debug(`[UserRepository] listing all users with 'limit':${limit} and 'offset':${offset}`)
         const { rows } = await this.connection.query(
-            `SELECT * FROM ${this.USER_TABLE} LIMIT ${limit} OFFSET ${offset}`
+            `SELECT 
+                u.id as id,
+                u.username as username,
+                u.password as password,
+                r.name as role
+            FROM ${this.USER_TABLE} as u
+            LEFT JOIN ${this.USER_ROLE_TABLE} as r
+            ON u.user_role_id = r.id
+            LIMIT ${limit} OFFSET ${offset}`
         );
         const users = rows.map(row => new User(row));
         this.logger.debug(`[UserRepository] found users: ${users.map(u=>u.id)}`)
@@ -30,13 +39,22 @@ export class UserRepository {
         );
         const user = new User(rows[0])
         this.logger.debug(`[UserRepository] created user#${user.id}`)
-        return user;
+        const joined_user = await this.retrieve_user_by_id(user.id)
+        return joined_user;
     }
 
     public async retrieve_user_by_id(id: number) {
         this.logger.debug(`[UserRepository] fetching user#${id}`)
         const { rows } = (await this.connection.query(
-            `SELECT * FROM ${this.USER_TABLE} WHERE id=$1`,
+            `SELECT 
+                u.id as id,
+                u.username as username,
+                u.password as password, 
+                r.name as role
+            FROM ${this.USER_TABLE} as u
+            LEFT JOIN ${this.USER_ROLE_TABLE}  as r
+            ON u.user_role_id = r.id
+            WHERE u.id=$1`,
             [id]
         ));
         if (rows.length > 0){

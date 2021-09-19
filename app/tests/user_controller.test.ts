@@ -50,16 +50,21 @@ describe('debug test', () => {
 
     })
     afterAll(async () => {
+        const c = await db.get_connection()
+        await c.query('delete from user_account;')
+        await db.close_connection(c)
         await db.end()
     })
     
 
     test('Create User', async () => {
-        expect.assertions(2);
+        expect.assertions(3);
         const created_user = await user_controller.create_new_user(user)
         expect(created_user.username).toBe(user.username)
         expect(created_user.id).toBeDefined()
+        expect(created_user.role).toBe('BASE_ROLE')
         user.id = created_user.id
+        user.role = created_user.role
     })
 
     test('Create User with repeated username', async () => {
@@ -94,7 +99,7 @@ describe('debug test', () => {
         expect(res.count).toBe(1)
         expect(res.next_page).toBeFalsy()
         expect(res.prev_page).toBeFalsy()
-        expect(res.users).toEqual(expect.arrayContaining([{username: user.username, id:user.id}]))
+        expect(res.users).toEqual(expect.arrayContaining([{username: user.username, id:user.id, role: user.role}]))
     })
 
     test('Authenticate User', async () => {

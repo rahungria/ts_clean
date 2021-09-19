@@ -219,7 +219,8 @@ class MigrationsManager {
         }
     }
 
-    public async handle(action: string) {
+    public async handle(
+        action: 'validate'|'unregister'|'register'|'execute') {
         try {
             this.logger.info(`Handling action: '${action}'`)
             await this.init()
