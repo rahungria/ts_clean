@@ -220,7 +220,7 @@ export class MigrationManager {
     }
 
     public async handle(action: 'validate'|'unregister'|'register'|'execute') {
-        this.logger.info(`Handling action: '${action}'`)
+        this.logger.info(`[Migrations] Handling action: '${action}'`)
         await this.init()
         if (action == 'validate') {
             await this.validate()

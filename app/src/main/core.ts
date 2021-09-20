@@ -17,6 +17,7 @@ export class Core {
 
     private db: IDB_Manager
     public logger: ILogger
+    public http_logger: ILogger
     private session: ISessionManager
     private hasher: IHashable
     private mig_manager: MigrationManager
@@ -26,12 +27,14 @@ export class Core {
     private constructor(
         db: IDB_Manager,
         logger: ILogger,
+        http_logger: ILogger,
         session: ISessionManager,
         hasher: IHashable,
         mig_manager: MigrationManager
     ) {
         this.db = db
         this.logger = logger
+        this.http_logger = http_logger
         this.session = session
         this.hasher = hasher
         this.mig_manager = mig_manager
@@ -63,9 +66,17 @@ export class Core {
             log_identifier: 'app',
             log_level: options.logLevel
         })
+        default_logger.debug('Default Logger created')
+        const http_logger = new DefaultLogger({
+            mirror_stdout: true,
+            log_root: options.log,
+            log_identifier: 'http',
+            log_level: options.logLevel
+        })
+        http_logger.debug('HTTP Logger created')
+        
+        
         default_logger.info('Initializing APP...')
-
-
         default_logger.debug('Creating Drivers...')
         const pg_driver = new PGDriver({}, default_logger);
         const bcrypt_driver = new BcryptDriver(default_logger);
@@ -78,7 +89,14 @@ export class Core {
         default_logger.debug('Migrations Validated')
 
         default_logger.info('APP Initialized')
-        return new Core(pg_driver, default_logger, redis_session, bcrypt_driver, mig_manager);
+        return new Core(
+            pg_driver, 
+            default_logger, 
+            http_logger,
+            redis_session, 
+            bcrypt_driver, 
+            mig_manager
+        );
     }
 
     public static async get(): Promise<Core> {

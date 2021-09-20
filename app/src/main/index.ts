@@ -16,6 +16,6 @@ Core.get().then(core => {
 },
 error => {
     console.log('Failed to Init core')
-    console.log(error)
+    console.error(error)
     throw error
 })
