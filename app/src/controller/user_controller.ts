@@ -1,37 +1,39 @@
-import { UserType } from "../entity/user";
-import { ILogger } from "../ports/logger_port";
-import { IHashable } from "../ports/hash_port";
-import { IDB_Manager } from "../ports/db_manager_port";
-import { ISessionManager } from "../ports/session_manager_port";
-import { UserRepository } from "../repository/user_repository";
+import { UserType } from "../entity/user" 
+import { ILogger } from "../ports/logger_port" 
+import { IHashable } from "../ports/hash_port" 
+import { IDB_Manager } from "../ports/db_manager_port" 
+import { ISessionManager } from "../ports/session_manager_port" 
+import { UserRepository } from "../repository/user_repository" 
+import { UserRoleRepository } from "../repository/user_role_repository" 
 
 
 export class UserController {
-    private hash: IHashable;
-    private db: IDB_Manager;
-    private session: ISessionManager;
-    private logger: ILogger;
+    private hash: IHashable 
+    private db: IDB_Manager 
+    private session: ISessionManager 
+    private logger: ILogger 
 
     public constructor(db_manager: IDB_Manager, hash: IHashable, session: ISessionManager, logger: ILogger) {
-        this.db = db_manager;
-        this.hash = hash;
-        this.session = session;
-        this.logger = logger;
+        this.db = db_manager 
+        this.hash = hash 
+        this.session = session 
+        this.logger = logger 
         this.logger.debug('[UserController] initializing User Controller')
     }
 
 
     public async list_users({limit, offset}: {limit:number, offset:number}) {
-        const con = await this.db.get_connection();
+        const con = await this.db.get_connection() 
         try {
             this.logger.info('[UserController] Listing users')
-            const user_repo = new UserRepository(con, this.logger);
-            const users = (await user_repo.list_all({limit, offset})).map(user => user.to_json());
+            const role_repo = new UserRoleRepository(con, this.logger)
+            const user_repo = new UserRepository(con, this.logger, role_repo) 
+            const users = (await user_repo.list_all({limit, offset})).map(user => user.to_json()) 
             
-            const count = await user_repo.count();
-            if (limit < 1) limit = 1;
-            if (offset < 0) offset = 0;
-            if (offset > count) offset = count;
+            const count = await user_repo.count() 
+            if (limit < 1) limit = 1 
+            if (offset < 0) offset = 0 
+            if (offset > count) offset = count 
 
             const next = {
                 limit: limit,
@@ -62,15 +64,16 @@ export class UserController {
 
     public async create_new_user(data: UserType) {
         this.logger.info(`[UserController] Creating user: ${data.username}`)
-        const connection = await this.db.get_connection();
+        const connection = await this.db.get_connection() 
         try {
-            const user_repo = new UserRepository(connection, this.logger);
-            await connection.query('BEGIN');
-            const hashed = await this.hash.hash(data.password);
+            const role_repo = new UserRoleRepository(connection, this.logger)
+            const user_repo = new UserRepository(connection, this.logger, role_repo) 
+            await connection.query('BEGIN') 
+            const hashed = await this.hash.hash(data.password) 
             try { 
-                const user = await user_repo.insert_user({username: data.username, password:hashed});
-                await connection.query('COMMIT');
-                return user?.to_json();
+                const user = await user_repo.insert_user({username: data.username, password:hashed}) 
+                await connection.query('COMMIT') 
+                return user?.to_json() 
             }
             catch (error: any) {
                 this.logger.error(`[UserController] Failed Creating user#${data.username} ${error}`)
@@ -85,13 +88,14 @@ export class UserController {
 
     public async retrieve_user({id, username}: {id?:number, username?:string}){
         this.logger.info(`[UserController] Retrieving user#${id || username}`)
-        const con = await this.db.get_connection();
+        const con = await this.db.get_connection() 
         try {
-            const user_repo = new UserRepository(con, this.logger);
+            const role_repo = new UserRoleRepository(con, this.logger)
+            const user_repo = new UserRepository(con, this.logger, role_repo) 
             if (id) 
-                return (await user_repo.retrieve_user_by_id(id))?.to_json();
+                return (await user_repo.retrieve_user_by_id(id))?.to_json() || null
             else if (username)
-                return (await user_repo.retrieve_user_by_username(username))?.to_json();
+                return (await user_repo.retrieve_user_by_username(username))?.to_json() || null
             else{
                 this.logger.error('[UserController] Tried retrieving user with no params given...')
                 return null
@@ -104,15 +108,16 @@ export class UserController {
 
     public async authenticate_user(data: UserType) {
         this.logger.info(`[UserController] Auth user#${data.username}`)
-        const con = await this.db.get_connection();
+        const con = await this.db.get_connection() 
         try {
-            const user_repo = new UserRepository(con, this.logger);
-            const user = await user_repo.retrieve_user_by_username(data.username);
+            const role_repo = new UserRoleRepository(con, this.logger)
+            const user_repo = new UserRepository(con, this.logger, role_repo) 
+            const user = await user_repo.retrieve_user_by_username(data.username) 
             if (!user)
                 return null
 
             this.logger.debug(`[UserController] Matching credentials for user#${user.id}`)
-            const match = await this.hash.compare(data.password, user.password);
+            const match = await this.hash.compare(data.password, user.password) 
             if (match){
                 const start_session = await this.session.start_user_session(user, 300)
                 if (start_session){
@@ -136,11 +141,12 @@ export class UserController {
 
     public async delete_user(id: number) {
         this.logger.info(`[UserController] deleting user#${id}`)
-        const con = await this.db.get_connection();
+        const con = await this.db.get_connection() 
         try {
-            const user_repo = new UserRepository(con, this.logger);
-            const r = await user_repo.delete_user(id);
-            return r;
+            const role_repo = new UserRoleRepository(con, this.logger)
+            const user_repo = new UserRepository(con, this.logger, role_repo) 
+            const r = await user_repo.delete_user(id) 
+            return r 
         } 
         catch (error: any) {
             this.logger.error(`[UserController] Failed deleting user#${id}: ${error}`)

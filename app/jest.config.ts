@@ -23,7 +23,7 @@ export default {
   collectCoverageFrom: [
     'src/controller/**',
     'src/repository/**',
-    'src/entity/**',
+    'src/entity/**'
   ],
 
   // The directory where Jest should output its coverage files

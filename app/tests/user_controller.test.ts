@@ -25,7 +25,7 @@ const random_user = () => {
 }
 
 
-describe('debug test', () => {
+describe('UserController Tests', () => {
     let db: IDB_Manager
     let redis: ISessionManager
     let hash: IHashable
@@ -37,7 +37,7 @@ describe('debug test', () => {
         logger = new DefaultLogger({
             mirror_stdout: false,
             log_root: path.join(path.resolve(__dirname), 'logs'),
-            log_identifier: 'test_usercontroller',
+            log_identifier: 'UserController.test',
             log_level: 'debug'
         })
         db = new PGDriver({host: process.env.POSTGRES_TEST_HOST}, logger);
@@ -57,12 +57,12 @@ describe('debug test', () => {
     })
     
 
-    test('Create User', async () => {
+    test('Create User with Default Role', async () => {
         expect.assertions(3);
         const created_user = await user_controller.create_new_user(user)
         expect(created_user.username).toBe(user.username)
         expect(created_user.id).toBeDefined()
-        expect(created_user.role).toBe('BASE_ROLE')
+        expect(created_user.role).toEqual({id: 1, name: 'BASE_ROLE'})
         user.id = created_user.id
         user.role = created_user.role
     })
@@ -74,31 +74,33 @@ describe('debug test', () => {
     })
 
     test('Retrieve User by ID', async () => {
-        expect.assertions(2)
+        expect.assertions(3)
         const res = await user_controller.retrieve_user({id: user.id})
         expect(res.id).toEqual(user.id)
         expect(res.username).toEqual(user.username)
+        expect(res.role).toEqual({id:1, name:'BASE_ROLE'})
     })
 
     test('Retrieve User by Username', async () => {
-        expect.assertions(2)
+        expect.assertions(3)
         const res = await user_controller.retrieve_user({username: user.username})
         expect(res.id).toEqual(user.id)
         expect(res.username).toEqual(user.username)
+        expect(res.role).toEqual({id:1, name:'BASE_ROLE'})
     })
 
     test('Retrieve User without enough params', async () => {
         expect.assertions(1)
         const res = await user_controller.retrieve_user({})
-        expect(res).toBeFalsy()
+        expect(res).toBeNull()
     })
 
     test('List All Users', async () => {
         expect.assertions(4)
         const res = await user_controller.list_users({limit:10, offset:0})
         expect(res.count).toBe(1)
-        expect(res.next_page).toBeFalsy()
-        expect(res.prev_page).toBeFalsy()
+        expect(res.next_page).toBeNull()
+        expect(res.prev_page).toBeNull()
         expect(res.users).toEqual(expect.arrayContaining([{username: user.username, id:user.id, role: user.role}]))
     })
 
@@ -114,13 +116,13 @@ describe('debug test', () => {
     test('Authenticate User with Wrong Password', async () => {
         expect.assertions(1)
         const fail = await user_controller.authenticate_user({username: user.username, password: 'wrong_password'})
-        expect(fail).toBeFalsy()
+        expect(fail).toBeNull()
     })
 
     test('Authenticate User with Wrong Username', async () => {
         expect.assertions(1)
         const fail = await user_controller.authenticate_user({username: user.username+'_wrong', password: user.password})
-        expect(fail).toBeFalsy()
+        expect(fail).toBeNull()
     })
 
     test('Delete User', async () => {
@@ -130,6 +132,6 @@ describe('debug test', () => {
 
         // determine if user was deleted after all
         const check = await user_controller.retrieve_user({id:user.id})
-        expect(check).toBeFalsy()
+        expect(check).toBeNull()
     })
 })
